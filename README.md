@@ -125,6 +125,11 @@ cp /path/to/validation-agent/hook_validator.py /path/to/your/project/
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
+> **Pro abonnement ≠ API toegang.**  
+> Een Claude Pro abonnement (claude.ai) en de Anthropic API zijn twee aparte diensten met aparte betaling.  
+> Zelfs met een actief Pro abonnement heb je een API key nodig voor Layer 2.  
+> Maak een key aan op [console.anthropic.com](https://console.anthropic.com).
+
 ### 5. Install the Claude SDK (cascade or claude-only)
 
 ```bash

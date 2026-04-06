@@ -46,8 +46,12 @@ Be concise. Flag real problems only — not style preferences.\
 
 
 def _no_api_key() -> None:
-    print("[Claude] ⚠️  Geen ANTHROPIC_API_KEY — Claude review overgeslagen",
-          file=sys.stderr, flush=True)
+    print(
+        "[Claude] ⚠️  Geen ANTHROPIC_API_KEY — Claude review overgeslagen\n"
+        "         Let op: een Claude Pro abonnement geeft geen API toegang.\n"
+        "         Maak een API key aan op: console.anthropic.com",
+        file=sys.stderr, flush=True,
+    )
 
 
 def _log(py_file: Path, verdict: str, issues: list[str],
