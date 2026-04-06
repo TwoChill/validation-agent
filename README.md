@@ -4,7 +4,7 @@ A two-layer code validator that hooks into Claude Code's `PostToolUse` event. Af
 
 **Layer 1 — `validator.py`** Fast static analysis + mock-injection tests. No API key needed. Includes an optional Claude review pass if `ANTHROPIC_API_KEY` is set (silently skipped if not).
 
-**Layer 2 — `validator_agent.py`** A real AI agent. Claude drives a tool-use loop to read, fix, and verify code. Runs only when you switch to `cascade` or `agent-only` mode.
+**Layer 2 — `validator_agent.py`** A real AI agent. Claude drives a tool-use loop to read, fix, and verify code. Runs only when you switch to `full` or `agent` mode.
 
 ---
 
@@ -32,17 +32,17 @@ Set `validator_mode` in `config.json`:
 
 | Mode | Behaviour |
 |---|---|
-| `standalone` | Layer 1 only. Fast, no API key needed. Claude review runs silently if key is present. |
-| `cascade` | Layer 1 first. If PASS and API key present, Layer 2 (agent) runs with findings as context. |
-| `agent-only` | Layer 2 directly. If no API key: one message printed, then falls back to Layer 1. |
+| `static` | Layer 1 only. Fast, no API key needed. Claude review runs silently if key is present. |
+| `full` | Layer 1 first. If PASS and API key present, Layer 2 (agent) runs with findings as context. |
+| `agent` | Layer 2 directly. If no API key: one message printed, then falls back to Layer 1. |
 
 ### No API key behaviour
 
 | Mode | No API key |
 |---|---|
-| `standalone` | Works fully — Claude review silently skipped, no message |
-| `cascade` | Layer 1 runs and completes; Layer 2 silently skipped |
-| `agent-only` | Prints one message, then runs Layer 1 as fallback |
+| `static` | Works fully — Claude review silently skipped, no message |
+| `full` | Layer 1 runs and completes; Layer 2 silently skipped |
+| `agent` | Prints one message, then runs Layer 1 as fallback |
 
 ---
 
@@ -121,7 +121,7 @@ cp /root/agents/validation-agent/hook_validator.py /path/to/your/project/
 
 ```json
 {
-  "validator_mode": "standalone",
+  "validator_mode": "static",
 
   "project_name": "your-project",
   "entry_point": "python3 main.py",
@@ -226,7 +226,7 @@ python3 validator_agent.py /path/to/file.py
 
 | Field | Purpose |
 |---|---|
-| `validator_mode` | `standalone` \| `cascade` \| `agent-only` |
+| `validator_mode` | `static` \| `full` \| `agent` |
 | `project_name` | Display name used in logs |
 | `entry_point` | Shell command to run your project |
 | `working_dir` | Working directory for test runs |

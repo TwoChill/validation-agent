@@ -10,7 +10,7 @@ Usage:
   python validator_agent.py --from-hook        # reads CLAUDE_TOOL_INPUT_FILE_PATH + findings
 
 If ANTHROPIC_API_KEY is not set:
-  Prints one message, then falls back to running validator.py standalone.
+  Prints one message, then falls back to running validator.py (static mode).
 
 Guardrails:
   Max iterations : 8 tool-call rounds
@@ -159,7 +159,7 @@ def run_agent(target_file: Path, findings: Optional[dict] = None) -> int:
     api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
         print(
-            "[Agent] No API key detected — running standalone validator only.",
+            "[Agent] No API key detected — running static validator only.",
             file=sys.stderr, flush=True,
         )
         return _run_standalone(target_file)
