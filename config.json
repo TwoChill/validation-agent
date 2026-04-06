@@ -1,5 +1,5 @@
 {
-  "validator_mode": "cascade",
+  "validator_mode": "standalone",
 
   "project_name": "osint-tool",
   "entry_point": "python3 main.py",
@@ -62,6 +62,7 @@
   "timeout_seconds": 8,
 
   "_notes": {
+    "validator_mode": "standalone | cascade | agent-only. standalone = static + optional Claude review (silent if no key). cascade = standalone then real agent if key present. agent-only = real agent directly; falls back to standalone if no key.",
     "edge_case_template": "'{input}' is replaced with each edge case value. Prefix '5\\n' navigates to phone lookup; suffix 'exit\\n' handles the invalid-number loop exiting.",
     "expected_output": "Comma-separated keywords; any one keyword present = pass.",
     "timeout_seconds": "Per-test timeout in seconds. Increase if the project has slow network calls."

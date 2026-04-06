@@ -2,20 +2,24 @@
 
 A two-layer code validator that hooks into Claude Code's `PostToolUse` event. After every file edit, it automatically validates the changed file and reports directly in the Claude Code UI.
 
-**Layer 1** — Fast static analysis + mock-injection tests (10–30s, no API key needed).  
-**Layer 2** — Claude API review for logic errors, security issues, and silent failures.
+**Layer 1 — `validator.py`** Fast static analysis + mock-injection tests. No API key needed. Includes an optional Claude review pass if `ANTHROPIC_API_KEY` is set (silently skipped if not).
+
+**Layer 2 — `validator_agent.py`** A real AI agent. Claude drives a tool-use loop to read, fix, and verify code. Runs only when you switch to `cascade` or `agent-only` mode.
 
 ---
 
 ## Architecture
 
 ```
-hook_validator.py          ← dispatcher (lives in your project root)
+hook_validator.py           ← dispatcher (lives in your project root)
     │
-    ├── validator_agent.py    ← Layer 1: static analysis + mock-injection tests
-    └── claude_validator.py   ← Layer 2: Claude API review
+    ├── validator.py         ← Layer 1: static analysis + optional Claude review
+    │        │
+    │        └── .validator_findings.json   ← findings handoff file (auto-created)
+    │
+    └── validator_agent.py   ← Layer 2: real AI agent (Claude tool-use loop)
          ↑
-    config.json               ← project config + validator_mode
+    config.json              ← project config + validator_mode
 ```
 
 `hook_validator.py` reads `validator_mode` from `config.json` and decides which layers to run.
@@ -28,27 +32,33 @@ Set `validator_mode` in `config.json`:
 
 | Mode | Behaviour |
 |---|---|
-| `standalone` | Layer 1 only. Fast, no API key needed. |
-| `claude-only` | Layer 2 only. Requires `ANTHROPIC_API_KEY`. |
-| `cascade` | Layer 1 first → Layer 2 **only on full PASS**. |
+| `standalone` | Layer 1 only. Fast, no API key needed. Claude review runs silently if key is present. |
+| `cascade` | Layer 1 first. If PASS and API key present, Layer 2 (agent) runs with findings as context. |
+| `agent-only` | Layer 2 directly. If no API key: one message printed, then falls back to Layer 1. |
 
-### Behaviour without an API key
+### No API key behaviour
 
 | Mode | No API key |
 |---|---|
-| `standalone` | Works normally — no key needed |
-| `cascade` | Layer 1 runs; Layer 2 skipped with notice on stderr |
-| `claude-only` | Hard stop with clear error — silent fallback would be misleading |
+| `standalone` | Works fully — Claude review silently skipped, no message |
+| `cascade` | Layer 1 runs and completes; Layer 2 silently skipped |
+| `agent-only` | Prints one message, then runs Layer 1 as fallback |
 
 ---
 
 ## Output
 
-Both validators write to **stderr**, visible as a notification in the Claude Code UI after every file save:
+Validators write to **stderr**, visible as notifications in the Claude Code UI after every file save:
 
 ```
-[Validator] ✅ PASS (12/12) ~8s
-[Claude]    ⚠️  1 issue: unsanitized input on line 47 (~22s)
+[Validator] phone_lookup.py ...
+✅ PASS — phone_lookup.py  (6/6 passed)  [8.3s]
+[Claude]    ⚠️  WARNINGS — 1 issue: [line 47] unsanitized user input (~22s)
+
+[Agent]  → read_file(['path'])
+[Agent]  → run_code(['path'])
+[Agent]  → write_fix(['path', 'fixed_code'])
+[Agent] ✅ FIXED — 3 round(s), 2,100↑ 800↓ tokens, ~$0.0915
 ```
 
 Full reports are appended to `validation_log.md`.
@@ -59,26 +69,38 @@ Full reports are appended to `validation_log.md`.
 
 | Code | Meaning |
 |---|---|
-| `0` | PASS |
-| `1` | WARNINGS |
+| `0` | PASS / FIXED |
+| `1` | WARNINGS / PARTIAL |
 | `2` | FAIL / CRITICAL |
 
-In cascade mode the exit code is the worst of the two layers.
+In `cascade` mode the exit code is the worst of both layers.
 
 ---
 
 ## Setup
 
-### 1. Copy `hook_validator.py` to your project root
+### 1. Clone this repo
 
 ```bash
-cp /path/to/validation-agent/hook_validator.py /path/to/your/project/
+git clone https://github.com/TwoChill/validation-agent.git /root/agents/validation-agent
 ```
 
-### 2. Register the hook in `.claude/settings.json`
+### 2. Copy `hook_validator.py` to your project root
+
+```bash
+cp /root/agents/validation-agent/hook_validator.py /path/to/your/project/
+```
+
+### 3. Register the hook in `.claude/settings.json`
 
 ```json
 {
+  "permissions": {
+    "allow": [
+      "Bash(python3 /root/agents/validation-agent/validator.py:*)",
+      "Bash(python3 /root/agents/validation-agent/validator_agent.py:*)"
+    ]
+  },
   "hooks": {
     "PostToolUse": [
       {
@@ -95,11 +117,11 @@ cp /path/to/validation-agent/hook_validator.py /path/to/your/project/
 }
 ```
 
-### 3. Configure `config.json`
+### 4. Configure `config.json`
 
 ```json
 {
-  "validator_mode": "cascade",
+  "validator_mode": "standalone",
 
   "project_name": "your-project",
   "entry_point": "python3 main.py",
@@ -119,67 +141,84 @@ cp /path/to/validation-agent/hook_validator.py /path/to/your/project/
 }
 ```
 
-### 4. Set your API key (cascade or claude-only)
-
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-```
-
-> **Pro abonnement ≠ API toegang.**  
-> Een Claude Pro abonnement (claude.ai) en de Anthropic API zijn twee aparte diensten met aparte betaling.  
-> Zelfs met een actief Pro abonnement heb je een API key nodig voor Layer 2.  
-> Maak een key aan op [console.anthropic.com](https://console.anthropic.com).
-
-### 5. Install the Claude SDK (cascade or claude-only)
+### 5. Install the Anthropic SDK (for Layer 2)
 
 ```bash
 pip install anthropic
 ```
 
+### 6. Set your API key (for Layer 2)
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
+
+> **Claude Pro ≠ API access.**
+> A Claude Pro subscription (claude.ai) and the Anthropic API are separate services with separate billing.
+> Even with an active Pro subscription, you need an API key for Layer 2.
+> Create one at [console.anthropic.com](https://console.anthropic.com).
+
 ---
 
 ## What each layer catches
 
-### Layer 1 — `validator_agent.py`
+### Layer 1 — `validator.py` (static + Claude review)
+
+Static analysis (no API key needed):
 - Syntax errors
 - Missing environment variables
 - Dependency detection (network, database, external APIs, subprocess)
 - Mock-injection unit tests for all public functions
-- Per-file mode: 10–30 seconds
-- Full-project mode: 2–5 minutes
 
-### Layer 2 — `claude_validator.py`
-Things static analysis cannot catch:
+Claude review (API key optional — silently skipped if absent):
 - **Intent vs implementation** — wrong conditions, inverted logic, off-by-one errors
 - **Security with context** — SSRF, unsanitized user input, path traversal, hardcoded secrets
 - **Silent failures** — swallowed exceptions, unchecked return values, error paths that succeed silently
 - **Domain logic errors** — specific to your project's data flows and API contracts
 
+### Layer 2 — `validator_agent.py` (real agent)
+
+Claude drives a tool loop. It decides what to do next based on what it observes:
+
+1. Reads the file
+2. Identifies bugs from validator findings + its own analysis
+3. Writes a fix
+4. Runs the file to verify
+5. Repeats until the code is clean or the limit is hit
+
+**Guardrails:**
+- Max 8 tool-call iterations per run
+- 120-second wall-clock timeout
+- Token usage and cost estimate printed after every run
+
 ---
 
-## Running Layer 1 manually
+## Running manually
 
-Full project scan:
-
-```bash
-python validator_agent.py --project /path/to/your/project --config config.json
-```
-
-Per-file (same as hook mode):
+### Layer 1 — per-file (same as hook mode)
 
 ```bash
-CLAUDE_TOOL_INPUT_FILE_PATH=/path/to/file.py python validator_agent.py
+CLAUDE_TOOL_INPUT_FILE_PATH=/path/to/file.py python3 validator.py
 ```
 
-### CLI flags
+### Layer 1 — full project scan
+
+```bash
+python3 validator.py --project /path/to/your/project
+```
+
+### Layer 2 — fix a specific file
+
+```bash
+python3 validator_agent.py /path/to/file.py
+```
+
+### Layer 1 CLI flags
 
 | Flag | Purpose |
 |---|---|
-| `--project PATH` | Project directory to test |
-| `--config PATH` | Path to config.json |
+| `--project PATH` | Project directory to scan |
 | `--log PATH` | Override log file path |
-| `--no-edge-cases` | Happy path tests only |
-| `--category STRING` | Only edge cases matching STRING |
 
 ---
 
@@ -187,7 +226,7 @@ CLAUDE_TOOL_INPUT_FILE_PATH=/path/to/file.py python validator_agent.py
 
 | Field | Purpose |
 |---|---|
-| `validator_mode` | `standalone` \| `cascade` \| `claude-only` |
+| `validator_mode` | `standalone` \| `cascade` \| `agent-only` |
 | `project_name` | Display name used in logs |
 | `entry_point` | Shell command to run your project |
 | `working_dir` | Working directory for test runs |
@@ -235,6 +274,11 @@ Layer 1 always tests these regardless of `config.json`:
 ## [2026-04-06 14:32:24] phone_lookup.py — ✅ Claude PASS (22.1s)
 - Issues: none
 - Summary: Code handles all input paths correctly with appropriate error boundaries.
+
+## [2026-04-06 14:33:10] phone_lookup.py — ✅ Agent FIXED
+- Iterations: 3/8
+- Tokens: 2,100 input / 800 output
+- Estimated cost: ~$0.0915
 ```
 
 ---
@@ -243,18 +287,19 @@ Layer 1 always tests these regardless of `config.json`:
 
 | File | Location | Purpose |
 |---|---|---|
-| `hook_validator.py` | Your project root | Dispatcher: reads mode, runs validators, reports to stderr |
-| `validator_agent.py` | `validation-agent/` | Layer 1: static analysis + mock-injection |
-| `claude_validator.py` | `validation-agent/` | Layer 2: Claude API review |
+| `hook_validator.py` | Your project root | Dispatcher: reads mode, runs layers, reports to stderr |
+| `validator.py` | `validation-agent/` | Layer 1: static analysis + optional Claude review |
+| `validator_agent.py` | `validation-agent/` | Layer 2: real AI agent with tool-use loop |
 | `config.json` | `validation-agent/` | Project config + `validator_mode` |
 | `validation_log.md` | `validation-agent/` | Full audit log (append-only) |
+| `.validator_findings.json` | `validation-agent/` | Auto-created handoff between Layer 1 and Layer 2 |
 
 ---
 
 ## Requirements
 
 - Python 3.10+
-- `anthropic>=0.40.0` — required only for `cascade` and `claude-only` modes
-- `ANTHROPIC_API_KEY` — required only for `cascade` and `claude-only` modes
+- `anthropic>=0.40.0` — required only for `cascade` and `agent-only` modes
+- `ANTHROPIC_API_KEY` — required only for `cascade` and `agent-only` modes
 
-Layer 1 uses only the Python standard library.
+Layer 1 static analysis uses only the Python standard library.
