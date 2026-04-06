@@ -1,0 +1,69 @@
+{
+  "validator_mode": "cascade",
+
+  "project_name": "osint-tool",
+  "entry_point": "python3 main.py",
+  "working_dir": "/root/osint-tool",
+
+  "happy_path_tests": [
+    {
+      "description": "Main menu loads and exit works",
+      "input": "exit\n",
+      "expected_output": "menu loads, Social Media Lookup"
+    },
+    {
+      "description": "Invalid menu choice shows error, doesn't crash",
+      "input": "99\n\nexit\n",
+      "expected_output": "not a number"
+    },
+    {
+      "description": "Phone lookup with valid Dutch number (no API key, no export)",
+      "input": "5\n+31639220617\n\nn\n\nexit\n",
+      "expected_output": "Phone Lookup"
+    },
+    {
+      "description": "Non-numeric menu input falls through gracefully",
+      "input": "hello\n\nexit\n",
+      "expected_output": "not a number"
+    }
+  ],
+
+  "edge_case_template": "5\n{input}\nexit\n",
+
+  "edge_case_inputs": [
+    "",
+    "123",
+    "-999",
+    "asdfghjkl",
+    "True",
+    "None",
+    "@#$%^&*()",
+    "\ud83d\udd25\ud83d\udc80\ud83d\ude80",
+    "\u4f60\u597d\u4e16\u754c",
+    "\u0645\u0631\u062d\u0628\u0627",
+    "+31639220617999999999999",
+    "+31#63@922@617",
+    "31639220617",
+    "   ",
+    "\t\t\t",
+    "\n\n\n",
+    "\u0000\u0000",
+    "x\u00001000",
+    "+31639",
+    "31-639-220-617",
+    "31.639.220.617",
+    "9999999999999999999999",
+    "' OR 1=1 --",
+    "../../etc/passwd",
+    "; ls -la",
+    "<script>alert(1)</script>"
+  ],
+
+  "timeout_seconds": 8,
+
+  "_notes": {
+    "edge_case_template": "'{input}' is replaced with each edge case value. Prefix '5\\n' navigates to phone lookup; suffix 'exit\\n' handles the invalid-number loop exiting.",
+    "expected_output": "Comma-separated keywords; any one keyword present = pass.",
+    "timeout_seconds": "Per-test timeout in seconds. Increase if the project has slow network calls."
+  }
+}
