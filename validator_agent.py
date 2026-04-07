@@ -21,6 +21,7 @@ Guardrails:
 Exit codes: 0=PASS/FIXED  1=PARTIAL  2=FAIL
 """
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -203,6 +204,8 @@ def run_agent(target_file: Path, findings: Optional[dict] = None) -> int:
     iterations   = 0
     wrote_fix    = False
     wall_start   = time.monotonic()
+    seen_fix_hashes: set = set()   # repeated-fix detection
+    last_error_count: Optional[int] = None  # no-improvement detection
 
     print(f"[Agent] Starting on {target_file.name} ...", file=sys.stderr, flush=True)
 
@@ -248,6 +251,26 @@ def run_agent(target_file: Path, findings: Optional[dict] = None) -> int:
                     result = TOOLS[block.name](**block.input)
                     if block.name == "write_fix":
                         wrote_fix = True
+                        # Check for repeated fix
+                        fix_code = block.input.get("fixed_code", "")
+                        fix_hash = hashlib.md5(fix_code.encode()).hexdigest()
+                        if fix_hash in seen_fix_hashes:
+                            print(
+                                "[Agent] Same fix repeated — stopping to avoid loop.",
+                                file=sys.stderr, flush=True,
+                            )
+                            tool_results.append({
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "content": result,
+                            })
+                            messages.append({"role": "assistant", "content": response.content})
+                            messages.append({"role": "user", "content": tool_results})
+                            verdict = "PARTIAL"
+                            _log(target_file, verdict, iterations, total_input, total_output,
+                                 _cost(total_input, total_output))
+                            return 1
+                        seen_fix_hashes.add(fix_hash)
                     tool_results.append({
                         "type": "tool_use_id" if False else "tool_result",
                         "tool_use_id": block.id,

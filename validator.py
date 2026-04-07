@@ -712,62 +712,121 @@ def run_per_file_mode(file_path: Path, log_path: Path) -> int:
     if file_path.name in skip_names or file_path.name.startswith("test_"):
         return 0
 
-    print(f"[Validator] {file_path.name} ...", flush=True)
+    print(f"[Validator] {file_path.name} ...", file=sys.stderr, flush=True)
 
     analysis = scan_single_file(file_path)
 
     if "syntax_error" in analysis:
         duration = time.perf_counter() - t0
-        print(f"❌ FAIL — {file_path.name}: SyntaxError: {analysis['syntax_error']}")
+        msg = analysis['syntax_error']
+        print(f"❌ Critical issue:", file=sys.stderr)
+        print(f"   What broke: SyntaxError — {msg}", file=sys.stderr)
+        print(f"   Why it matters: The file cannot run at all", file=sys.stderr)
+        print(f"   Score: 0/100", file=sys.stderr)
         _log_per_file(log_path, file_path, "FAIL", 0, 1,
-                      [f"SyntaxError: {analysis['syntax_error']}"], duration, analysis)
+                      [f"SyntaxError: {msg}"], duration, analysis)
         return 2
 
     if "error" in analysis:
         duration = time.perf_counter() - t0
-        print(f"❌ FAIL — {file_path.name}: {analysis['error']}")
-        _log_per_file(log_path, file_path, "FAIL", 0, 1,
-                      [analysis["error"]], duration, analysis)
+        msg = analysis["error"]
+        print(f"❌ Critical issue:", file=sys.stderr)
+        print(f"   What broke: {msg}", file=sys.stderr)
+        print(f"   Why it matters: File could not be read or parsed", file=sys.stderr)
+        print(f"   Score: 0/100", file=sys.stderr)
+        _log_per_file(log_path, file_path, "FAIL", 0, 1, [msg], duration, analysis)
         return 2
 
     result = run_direct_mocks(file_path, analysis, timeout=25)
     duration = time.perf_counter() - t0
 
+    # ── Security checks (always run) ──────────────────────────────────────────
+    security_issues: List[str] = []
+    try:
+        source = file_path.read_text(encoding="utf-8", errors="replace")
+        security_issues = _run_security_checks(source)
+    except OSError:
+        source = ""
+
+    # Load config to check security_strict flag
+    _cfg_path = Path(__file__).parent / "config.json"
+    _security_strict = False
+    try:
+        _cfg = json.loads(_cfg_path.read_text(encoding="utf-8"))
+        _security_strict = bool(_cfg.get("security_strict", False))
+    except Exception:
+        pass
+
     status = "PASS" if result["failed"] == 0 else "FAIL"
-    icon = "✅" if status == "PASS" else "❌"
-    total = result["passed"] + result["failed"]
-
-    print(f"{icon} {status} — {file_path.name}  "
-          f"({result['passed']}/{total} passed)  [{duration:.1f}s]")
-
-    if result["errors"]:
-        for err in result["errors"][:3]:
-            print(f"  → {err}")
-
-    _log_per_file(log_path, file_path, status,
-                  result["passed"], result["failed"],
-                  result["errors"], duration, analysis)
 
     # ── Claude review (optional second pass) ──────────────────────────────────
     claude_verdict = "SKIPPED"
     claude_issues: List[str] = []
     claude_summary = ""
+    claude_dur = 0.0
 
-    if os.environ.get("ANTHROPIC_API_KEY", "").strip():
+    if os.environ.get("ANTHROPIC_API_KEY", "").strip() and source:
         try:
-            source = file_path.read_text(encoding="utf-8", errors="replace")
             claude_verdict, claude_issues, claude_summary, claude_dur = _run_claude_review(file_path, source)
             if claude_verdict != "SKIPPED":
-                icon_c = {"PASS": "✅", "WARNINGS": "⚠️ ", "FAIL": "❌"}.get(claude_verdict, "")
-                if claude_verdict == "PASS":
-                    print(f"[Claude]    {icon_c} PASS (~{claude_dur:.0f}s)")
-                else:
-                    label = f"{len(claude_issues)} issue{'s' if len(claude_issues) != 1 else ''}"
-                    first = f": {claude_issues[0]}" if claude_issues else ""
-                    print(f"[Claude]    {icon_c} {claude_verdict} — {label}{first} (~{claude_dur:.0f}s)")
-                _log_claude_review(log_path, file_path, claude_verdict, claude_issues, claude_summary, claude_dur)
+                _log_claude_review(log_path, file_path, claude_verdict,
+                                   claude_issues, claude_summary, claude_dur)
         except Exception:
             pass
+
+    # ── Human-readable output ─────────────────────────────────────────────────
+    scoring = compute_score(
+        result["passed"], result["failed"],
+        result.get("errors", []), claude_verdict,
+        security_issues if _security_strict else [],
+    )
+
+    all_issues = result.get("errors", []) + claude_issues
+    if _security_strict:
+        all_issues += security_issues
+
+    if status == "PASS" and claude_verdict in ("PASS", "SKIPPED") and not (
+            _security_strict and security_issues):
+        print(f"✅ Code is OK  [{duration:.1f}s]", file=sys.stderr)
+    elif status == "FAIL":
+        print(f"❌ Critical issue:", file=sys.stderr)
+        for err in result["errors"][:3]:
+            print(f"   What broke: {err}", file=sys.stderr)
+        print(f"   Why it matters: The code crashes or has a serious defect", file=sys.stderr)
+    else:
+        # WARNINGS — pass with issues
+        n = len(all_issues)
+        print(f"⚠️  {n} issue{'s' if n != 1 else ''} found:", file=sys.stderr)
+        for issue in all_issues[:5]:
+            # Try to extract line number if present
+            line_ref = ""
+            m = re.search(r'\[line (\d+)\]|line[: ]+(\d+)', issue, re.IGNORECASE)
+            if m:
+                line_ref = f"Line {m.group(1) or m.group(2)}: "
+                issue_txt = re.sub(r'\[line \d+\]|line[: ]+\d+[: ]*', '', issue).strip()
+            else:
+                issue_txt = issue
+            print(f"   {line_ref}{issue_txt}", file=sys.stderr)
+
+    # Print score
+    print(f"Score: {scoring['score']}/100", file=sys.stderr)
+    if scoring["score"] < 100:
+        bd = scoring["breakdown"]
+        print(f"  Correctness {bd['Correctness']}  "
+              f"Security {bd['Security']}  "
+              f"Robustness {bd['Robustness']}  "
+              f"AI Review {bd['AI Review']}", file=sys.stderr)
+
+    # Security strict warnings (always show if strict mode on)
+    if _security_strict and security_issues:
+        print(f"🔒 Security scan ({len(security_issues)} flag{'s' if len(security_issues) != 1 else ''}):",
+              file=sys.stderr)
+        for s in security_issues:
+            print(f"   · {s}", file=sys.stderr)
+
+    _log_per_file(log_path, file_path, status,
+                  result["passed"], result["failed"],
+                  result["errors"], duration, analysis)
 
     # ── Write findings for agent handoff ──────────────────────────────────────
     findings = {
@@ -776,8 +835,9 @@ def run_per_file_mode(file_path: Path, log_path: Path) -> int:
         "claude_verdict": claude_verdict,
         "static_errors": result.get("errors", []),
         "claude_issues": claude_issues,
-        "issues": result.get("errors", []) + claude_issues,
+        "issues": all_issues,
         "summary": claude_summary,
+        "score": scoring["score"],
     }
     try:
         FINDINGS_FILE.write_text(json.dumps(findings), encoding="utf-8")
@@ -1461,23 +1521,120 @@ def run_full_mode(project_dir: Path, log_path: Path) -> int:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# ZERO-CONFIG HELPERS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def init_config(project_dir: Path) -> None:
+    """Auto-generate config.json with smart defaults. Never overwrites existing config."""
+    config_path = Path(__file__).parent / "config.json"
+    if config_path.exists():
+        return
+
+    entry_candidates = ["main.py", "app.py", "index.py", "run.py", "server.py", "cli.py"]
+    entry_point = None
+    for candidate in entry_candidates:
+        if (project_dir / candidate).exists():
+            entry_point = f"python3 {candidate}"
+            break
+    if not entry_point:
+        py_files = sorted(
+            f for f in project_dir.glob("*.py")
+            if not f.name.startswith(("_", "test", "setup"))
+        )
+        entry_point = f"python3 {py_files[0].name}" if py_files else "python3 main.py"
+
+    config = {
+        "project_name": project_dir.name,
+        "entry_point": entry_point,
+        "working_dir": str(project_dir),
+        "timeout_seconds": 8,
+        "security_strict": False,
+        "_auto_generated": True,
+        "_note": "Auto-generated. Edit project_name and entry_point if needed.",
+    }
+    config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+
+def detect_project_type(project_dir: Path) -> str:
+    """Detect project type: api | cli | script"""
+    for f in sorted(project_dir.glob("*.py")):
+        try:
+            src = f.read_text(errors="replace")
+            if re.search(r"(Flask|FastAPI|app\.route|@router\.|@app\.)", src):
+                return "api"
+            if re.search(r"(argparse|click\.command|typer\.Typer|sys\.argv\[)", src):
+                return "cli"
+        except OSError:
+            pass
+    return "script"
+
+
+def _run_security_checks(source: str) -> List[str]:
+    """Run quick security pattern checks. Returns list of issue strings."""
+    issues: List[str] = []
+    patterns = [
+        (r'(?i)(password|secret|api_key|token)\s*=\s*["\'][^"\']{8,}["\']', "Possible hardcoded secret"),
+        (r'\beval\s*\(', "eval() — potential code injection risk"),
+        (r'\bexec\s*\(', "exec() — potential code injection risk"),
+        (r'\bos\.system\s*\(', "os.system() — prefer subprocess with a list"),
+        (r'subprocess\.[^\n]*shell\s*=\s*True', "shell=True in subprocess — injection risk"),
+        (r'\bpickle\.loads?\s*\(', "pickle deserialization — arbitrary code execution risk"),
+        (r'open\s*\([^,)]+,\s*["\']w["\']', "File write — verify the path cannot be controlled by user input"),
+    ]
+    for pattern, msg in patterns:
+        if re.search(pattern, source):
+            issues.append(msg)
+    return issues
+
+
+def compute_score(passed: int, failed: int, errors: List[str],
+                  claude_verdict: str, security_issues: List[str]) -> dict:
+    """Return score dict with total and breakdown."""
+    total = passed + failed
+    correctness = int((passed / total * 40) if total > 0 else 40)
+    security    = max(0, 20 - len(security_issues) * 5)
+    robustness  = max(0, 30 - failed * 10)
+    ai_bonus    = (10 if claude_verdict in ("PASS", "SKIPPED")
+                   else 5 if claude_verdict == "WARNINGS" else 0)
+    score = min(correctness + security + robustness + ai_bonus, 100)
+    return {
+        "score": score,
+        "breakdown": {
+            "Correctness": f"{correctness}/40",
+            "Security":    f"{security}/20",
+            "Robustness":  f"{robustness}/30",
+            "AI Review":   f"{ai_bonus}/10",
+        },
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    # ── Detect mode ───────────────────────────────────────────────────────────
-    # Per-file mode: no --project arg (invoked by hook)
-    # Full mode: --project /path [--full]
-    has_project = "--project" in sys.argv
-
-    script_dir = Path(__file__).parent.resolve()
+    script_dir       = Path(__file__).parent.resolve()
     log_path_default = script_dir / "validation_log.md"
+
+    has_project = "--project" in sys.argv
+    has_init    = "--init" in sys.argv
+
+    if has_init:
+        # ── Auto-generate config ───────────────────────────────────────────────
+        # Pull --project value if given, else cwd
+        project_str = None
+        if "--project" in sys.argv:
+            idx = sys.argv.index("--project")
+            if idx + 1 < len(sys.argv):
+                project_str = sys.argv[idx + 1]
+        project_dir = Path(project_str).resolve() if project_str else Path.cwd()
+        init_config(project_dir)
+        sys.exit(0)
 
     if not has_project:
         # ── Strategy 1: per-file (hook) ───────────────────────────────────────
         file_path_str = os.environ.get("CLAUDE_TOOL_INPUT_FILE_PATH", "").strip()
         if not file_path_str:
-            # Called without args and without env var — nothing to do
             sys.exit(0)
 
         file_path = Path(file_path_str).resolve()
@@ -1490,6 +1647,8 @@ def main():
                         "Usage: python validator.py --project /path [--full] [--log path]"
         )
         parser.add_argument("--project", required=True, help="Path to project directory")
+        parser.add_argument("--init", action="store_true",
+                            help="Auto-generate config.json and exit")
         parser.add_argument("--full", action="store_true",
                             help="Full validation (default when --project is given)")
         parser.add_argument("--log", default=None,
@@ -1500,6 +1659,10 @@ def main():
         if not project_dir.is_dir():
             print(f"[ERROR] Not a directory: {project_dir}", file=sys.stderr)
             sys.exit(2)
+
+        if args.init:
+            init_config(project_dir)
+            sys.exit(0)
 
         log_path = Path(args.log).resolve() if args.log else log_path_default
         sys.exit(run_full_mode(project_dir, log_path))
