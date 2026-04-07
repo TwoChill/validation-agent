@@ -64,8 +64,8 @@ Review the code for:
    path traversal, injection points.
 3. Silent failures — exceptions being swallowed, return values never checked, \
    error paths that succeed silently.
-4. Domain logic errors — for this OSINT tool: phone/email input handling, \
-   API response parsing, export file writing.
+4. Domain logic errors — data flow bugs, incorrect parsing, wrong assumptions \
+   about input format, off-by-one errors in business logic.
 
 Respond in this exact format:
 VERDICT: PASS | WARNINGS | FAIL
