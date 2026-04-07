@@ -1,12 +1,14 @@
 # validation-agent
 
-Automatic code checker for Claude Code. Checks your files after every edit and fixes issues using AI.
+Automatic code checker for Claude Code. Checks your files after every edit — fixes issues automatically if you add an API key.
 
-**Works instantly. No setup needed.**
+**Works instantly. No setup needed. Claude API is optional.**
 
 ---
 
 ## 🚀 Quick Start (2 minutes)
+
+### Linux / macOS
 
 **Step 1 — Go to your project folder**
 
@@ -24,8 +26,6 @@ curl -sSL https://raw.githubusercontent.com/TwoChill/validation-agent/main/insta
 
 That's it. The checker runs automatically after every file edit.
 
----
-
 **Want AI-powered auto-fix?** *(Optional)*
 
 Get a free API key at [console.anthropic.com](https://console.anthropic.com), then run:
@@ -34,7 +34,91 @@ Get a free API key at [console.anthropic.com](https://console.anthropic.com), th
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-Add that line to your `~/.bashrc` or `~/.zshrc` to make it permanent.
+To make it permanent, add that line to your `~/.bashrc` or `~/.zshrc`.
+
+---
+
+### Windows
+
+**Step 1 — Open PowerShell and go to your project folder**
+
+```powershell
+cd C:\path\to\your\project
+```
+
+**Step 2 — Install (Git + Python required)**
+
+```powershell
+git clone https://github.com/TwoChill/validation-agent.git "$HOME\agents\validation-agent"
+pip install anthropic
+```
+
+**Step 3 — Register the hook**
+
+```powershell
+Copy-Item "$HOME\agents\validation-agent\hook_validator.py" ".\hook_validator.py"
+python "$HOME\agents\validation-agent\validator.py" --init --project (Get-Location)
+```
+
+Then register the hook by running this in PowerShell (merges safely into your existing settings — nothing is overwritten):
+
+```powershell
+python - << 'EOF'
+import json, os, pathlib
+
+settings_path = pathlib.Path.home() / ".claude" / "settings.json"
+install_dir   = str(pathlib.Path.home() / "agents" / "validation-agent")
+project_dir   = str(pathlib.Path.cwd())
+
+try:
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+except (FileNotFoundError, json.JSONDecodeError):
+    settings = {}
+
+settings.setdefault("permissions", {}).setdefault("allow", [])
+for perm in [
+    f"Bash(python {install_dir}/validator.py:*)",
+    f"Bash(python {install_dir}/validator_agent.py:*)",
+]:
+    if perm not in settings["permissions"]["allow"]:
+        settings["permissions"]["allow"].append(perm)
+
+settings.setdefault("hooks", {}).setdefault("PostToolUse", [])
+already = any(
+    any(h.get("command", "").endswith("hook_validator.py") for h in e.get("hooks", []))
+    for e in settings["hooks"]["PostToolUse"]
+)
+if not already:
+    settings["hooks"]["PostToolUse"].append({
+        "matcher": "Edit|Write",
+        "hooks": [{"type": "command", "command": f"python {project_dir}/hook_validator.py"}]
+    })
+
+settings_path.parent.mkdir(parents=True, exist_ok=True)
+settings_path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
+print(f"Hook registered in {settings_path}")
+EOF
+```
+
+> This script reads your existing `settings.json`, adds only what's missing, and writes it back — your other settings are untouched.
+
+**Step 4 — Open Claude Code**
+
+The checker runs automatically after every file edit.
+
+**Want AI-powered auto-fix?** *(Optional)*
+
+Get a free API key at [console.anthropic.com](https://console.anthropic.com), then run:
+
+```powershell
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
+```
+
+To make it permanent (current user, all sessions):
+
+```powershell
+[System.Environment]::SetEnvironmentVariable("ANTHROPIC_API_KEY", "sk-ant-...", "User")
+```
 
 ---
 
@@ -42,7 +126,7 @@ Add that line to your `~/.bashrc` or `~/.zshrc` to make it permanent.
 
 - Checks your Python files for errors automatically after every edit in Claude Code
 - Shows clear, plain-English results — no jargon
-- Fixes issues automatically using AI when an API key is set
+- Fixes issues automatically using AI when an API key is set *(optional)*
 
 ---
 
@@ -81,7 +165,8 @@ your-project/
 └── .claude/
     └── settings.json        ← hook registered automatically
 
-~/agents/validation-agent/
+~/agents/validation-agent/          (Linux/macOS)
+%USERPROFILE%\agents\validation-agent\   (Windows)
 ├── validator.py             ← the checker engine
 ├── validator_agent.py       ← the AI fixer
 ├── config.json              ← auto-generated settings
@@ -184,7 +269,7 @@ Every check gives you a score out of 100:
 | Correctness | 40 | Ratio of passing mock tests |
 | Security | 20 | Deducted for each flag (strict mode) |
 | Robustness | 30 | Deducted for each failing edge case |
-| AI Review | 10 | Full points if AI says PASS |
+| AI Review | 10 | Full points if AI says PASS or SKIPPED |
 
 ### Security strict mode
 
@@ -215,6 +300,8 @@ Auto-generated on first run. Edit if needed:
 
 ### Manual use
 
+**Linux / macOS:**
+
 Check a specific file right now:
 ```bash
 CLAUDE_TOOL_INPUT_FILE_PATH=/path/to/file.py python3 ~/agents/validation-agent/validator.py
@@ -230,14 +317,36 @@ Fix a file with AI:
 python3 ~/agents/validation-agent/validator_agent.py /path/to/file.py
 ```
 
+**Windows (PowerShell):**
+
+Check a specific file right now:
+```powershell
+$env:CLAUDE_TOOL_INPUT_FILE_PATH = "C:\path\to\file.py"
+python "$HOME\agents\validation-agent\validator.py"
+```
+
+Scan an entire project:
+```powershell
+python "$HOME\agents\validation-agent\validator.py" --project C:\path\to\your\project
+```
+
+Fix a file with AI:
+```powershell
+python "$HOME\agents\validation-agent\validator_agent.py" C:\path\to\file.py
+```
+
 ### Log file
 
-Full history at `~/agents/validation-agent/validation_log.md` — append-only, timestamped.
+**Linux / macOS:** `~/agents/validation-agent/validation_log.md`
+
+**Windows:** `%USERPROFILE%\agents\validation-agent\validation_log.md`
+
+Append-only, timestamped.
 
 ### Requirements
 
 - Python 3.10+
-- `anthropic` Python package — installed automatically, only needed for AI features
+- `anthropic` Python package — only needed for AI features (`pip install anthropic`)
 - `ANTHROPIC_API_KEY` — optional, only needed for AI review and auto-fix
 
 ### File overview
