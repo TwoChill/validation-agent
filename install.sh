@@ -53,24 +53,28 @@ except (FileNotFoundError, json.JSONDecodeError):
 
 settings.setdefault("permissions", {}).setdefault("allow", [])
 allow = settings["permissions"]["allow"]
+
+# Remove stale validator permissions (different install paths from old installs)
+allow[:] = [p for p in allow if "validator.py" not in p and "validator_agent.py" not in p]
+
+# Add current install path
 for perm in [
     f"Bash(python3 {install_dir}/validator.py:*)",
     f"Bash(python3 {install_dir}/validator_agent.py:*)",
 ]:
-    if perm not in allow:
-        allow.append(perm)
+    allow.append(perm)
 
 settings.setdefault("hooks", {}).setdefault("PostToolUse", [])
+this_hook_cmd = f"python3 {project_dir}/hook_validator.py"
 hook_entry = {
     "matcher": "Edit|Write",
-    "hooks": [{
-        "type": "command",
-        "command": f"python3 {project_dir}/hook_validator.py"
-    }]
+    "hooks": [{"type": "command", "command": this_hook_cmd}]
 }
 existing = settings["hooks"]["PostToolUse"]
+
+# Check if THIS project's hook is already registered (not just any hook_validator.py)
 already = any(
-    any(h.get("command", "").endswith("hook_validator.py") for h in e.get("hooks", []))
+    any(h.get("command") == this_hook_cmd for h in e.get("hooks", []))
     for e in existing
 )
 if not already:

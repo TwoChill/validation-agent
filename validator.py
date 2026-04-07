@@ -1573,7 +1573,7 @@ def _run_security_checks(source: str) -> List[str]:
     """Run quick security pattern checks. Returns list of issue strings."""
     issues: List[str] = []
     patterns = [
-        (r'(?i)(password|secret|api_key|token)\s*=\s*["\'][^"\']{8,}["\']', "Possible hardcoded secret"),
+        (r'(?i)\b(password|secret|api_key|token|key)[a-z_0-9]*\s*=\s*["\'][^"\']{8,}["\']', "Possible hardcoded secret"),
         (r'\beval\s*\(', "eval() — potential code injection risk"),
         (r'\bexec\s*\(', "exec() — potential code injection risk"),
         (r'\bos\.system\s*\(', "os.system() — prefer subprocess with a list"),
