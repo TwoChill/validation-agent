@@ -50,7 +50,7 @@ cd C:\path\to\your\project
 
 ```powershell
 git clone https://github.com/TwoChill/validation-agent.git "$HOME\agents\validation-agent"
-pip install anthropic
+pip install anthropic  # optional — only needed for AI review and auto-fix
 ```
 
 **Step 3 — Register the hook**
@@ -63,8 +63,8 @@ python "$HOME\agents\validation-agent\validator.py" --init --project (Get-Locati
 Then register the hook by running this in PowerShell (merges safely into your existing settings — nothing is overwritten):
 
 ```powershell
-python - << 'EOF'
-import json, os, pathlib
+$script = @'
+import json, pathlib
 
 settings_path = pathlib.Path.home() / ".claude" / "settings.json"
 install_dir   = str(pathlib.Path.home() / "agents" / "validation-agent")
@@ -97,7 +97,8 @@ if not already:
 settings_path.parent.mkdir(parents=True, exist_ok=True)
 settings_path.write_text(json.dumps(settings, indent=2), encoding="utf-8")
 print(f"Hook registered in {settings_path}")
-EOF
+'@
+python -c $script
 ```
 
 > This script reads your existing `settings.json`, adds only what's missing, and writes it back — your other settings are untouched.
