@@ -123,6 +123,45 @@ To make it permanent (current user, all sessions):
 
 ---
 
+## Git Hook — For Non-Claude Code Users
+
+If you use standard `git` without Claude Code, `install.sh` also installs a **pre-commit hook** that validates Python files automatically before every commit.
+
+| Result | Behaviour |
+|---|---|
+| All files pass | Commit proceeds normally |
+| Warnings detected | **Prompts you** to continue or abort |
+| Any critical issue | Commit **blocked** automatically |
+
+### Linux / macOS
+
+The hook runs in bash and prompts you interactively when warnings are found. In non-interactive environments (CI pipelines, GUI git clients), warnings are logged and the commit proceeds automatically.
+
+### Windows
+
+**Git for Windows (Git Bash) — recommended:** The hook runs natively in Git Bash and behaves identically to Linux, including the interactive warning prompt.
+
+**Native PowerShell / CMD:** Git hooks are executed via the bash bundled with Git for Windows even when you commit from PowerShell or CMD. The interactive prompt appears in the same terminal window.
+
+> If you use a GUI git client (e.g. GitHub Desktop, Tower) that does not open a terminal, the hook runs non-interactively and warnings are auto-logged without a prompt.
+
+To bypass validation for a specific commit:
+
+```bash
+git commit --no-verify
+```
+
+**Manual install (Linux / macOS / Windows Git Bash):**
+
+```bash
+ln -sf ~/agents/validation-agent/pre-commit .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+```
+
+> The hook is fail-open: if `validation-agent` is not found on the system, the commit is allowed through with a note.
+
+---
+
 ## ✅ What This Does
 
 - Checks your Python files for errors automatically after every edit in Claude Code

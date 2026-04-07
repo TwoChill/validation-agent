@@ -86,11 +86,35 @@ with open(settings_path, "w") as f:
 print(f"  Hook registered in {settings_path}")
 PYEOF
 
+# ── Install git pre-commit hook ───────────────────────────────────────────────
+GIT_HOOKS_DIR="$PROJECT_DIR/.git/hooks"
+
+if [ -d "$GIT_HOOKS_DIR" ]; then
+    # Back up any existing non-symlink hook so we don't silently overwrite it
+    if [ -e "$GIT_HOOKS_DIR/pre-commit" ] && [ ! -L "$GIT_HOOKS_DIR/pre-commit" ]; then
+        mv "$GIT_HOOKS_DIR/pre-commit" "$GIT_HOOKS_DIR/pre-commit.bak"
+        echo "  Existing pre-commit hook backed up to pre-commit.bak"
+    fi
+    # Symlink preferred: stays in sync when the agent updates via git pull
+    if ln -sf "$INSTALL_DIR/pre-commit" "$GIT_HOOKS_DIR/pre-commit" 2>/dev/null; then
+        chmod +x "$INSTALL_DIR/pre-commit"
+        echo "  Git pre-commit hook installed: $GIT_HOOKS_DIR/pre-commit"
+    else
+        cp "$INSTALL_DIR/pre-commit" "$GIT_HOOKS_DIR/pre-commit"
+        chmod +x "$GIT_HOOKS_DIR/pre-commit"
+        echo "  Git pre-commit hook installed (copy): $GIT_HOOKS_DIR/pre-commit"
+    fi
+else
+    echo "  Note: $PROJECT_DIR is not a git repository — pre-commit hook not installed."
+fi
+
 echo ""
 echo "Done. validation-agent is ready."
 echo ""
-echo "It will automatically check your code after every file edit in Claude Code."
-echo "No configuration needed."
+echo "Claude Code users  : checks run automatically after every file edit."
+echo "All git users      : pre-commit hook validates files before every commit."
+echo ""
+echo "To bypass a specific commit: git commit --no-verify"
 echo ""
 echo "Optional: add AI-powered auto-fix by setting your API key:"
 echo "  export ANTHROPIC_API_KEY=\"sk-ant-...\""
