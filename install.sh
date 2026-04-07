@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-INSTALL_DIR="${VALIDATION_AGENT_DIR:-/root/agents/validation-agent}"
+INSTALL_DIR="${VALIDATION_AGENT_DIR:-$HOME/agents/validation-agent}"
 REPO="https://github.com/TwoChill/validation-agent.git"
 
 echo "Installing validation-agent..."

@@ -19,7 +19,6 @@ AGENT_DIR = None
 for _candidate in [
     _HERE.parent / "agents" / "validation-agent",
     Path.home() / "agents" / "validation-agent",
-    Path("/root/agents/validation-agent"),
     _HERE,
 ]:
     if (_candidate / "validator.py").exists():
