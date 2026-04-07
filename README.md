@@ -8,13 +8,19 @@ Automatic code checker for Claude Code. Checks your files after every edit and f
 
 ## 🚀 Quick Start (2 minutes)
 
-**Step 1 — Install**
+**Step 1 — Go to your project folder**
+
+```bash
+cd /path/to/your/project
+```
+
+**Step 2 — Install**
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/TwoChill/validation-agent/main/install.sh | bash
 ```
 
-**Step 2 — Open Claude Code in your project folder**
+**Step 3 — Open Claude Code**
 
 That's it. The checker runs automatically after every file edit.
 

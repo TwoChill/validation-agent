@@ -5,6 +5,8 @@ INSTALL_DIR="${VALIDATION_AGENT_DIR:-$HOME/agents/validation-agent}"
 REPO="https://github.com/TwoChill/validation-agent.git"
 
 echo "Installing validation-agent..."
+echo "Tip: run this from your project folder to auto-register the hook there."
+echo ""
 
 # Clone or update
 if [ -d "$INSTALL_DIR/.git" ]; then
