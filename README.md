@@ -6,6 +6,13 @@ Automatic code checker for Claude Code. Checks your files after every edit — f
 
 ---
 
+## Installation
+
+```bash
+pip install -r requirements.txt
+python validator.py
+```
+
 ## 🚀 Quick Start (2 minutes)
 
 ### Linux / macOS
